@@ -28,7 +28,7 @@
 
 		<ip_instance>
 			<name>i_main_core</name>
-			<library_name>rvc_orca_plus</library_name>
+			<library_name>rvc_rocket_big</library_name>
     </ip_instance>
 
     <ip_instance>
@@ -36,7 +36,7 @@
       <library_name>dca_matrix_conv2d_mmiox_mlsu</library_name>
       <parameter>
         <id>INPUT_MATRIX_SIZE</id>
-        <value>18</value>
+        <value>22</value>
       </parameter>
       <parameter>
         <id>KERNEL_MATRIX_SIZE</id>
@@ -62,6 +62,11 @@
 				<value type="dec">100000000</value>
 			</define>
     </clock_info>
+
+    <sw_define>
+      <caching_most>True</caching_most>
+      <use_profiling type="bool">True</use_profiling>
+    </sw_define>
 
     <sim_define>
       <record_top>"depth=20",i_platform.i_rtl.i_dca_matrix_conv00</record_top>

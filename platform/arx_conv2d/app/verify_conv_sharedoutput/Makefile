@@ -22,32 +22,34 @@ else
 	include ${RVX_DEVKIT_HOME}/rvx_config.mh
 endif
 
-ORIGINAL_FILE_LIST=./Makefile
-include ${RVX_UTIL_HOME}/distclean.mh
+TEMPLATE_FILE = ${RVX_ENV}/makefile/Makefile.app.template
+include ${RVX_UTIL_HOME}/template_makefile.mh
 
-include ${RVX_SSW_HOME}/core/irom/set_env.mh
-include ${RVX_SSW_HOME}/api/munoc/env/set_env.mh
-include ${RVX_SSW_HOME}/api/platform_controller/env/set_env.mh
-INCLUDES += -I${RVX_SSW_HOME}/memorymap
+PLATFORM_DIR = $(call absolute_path,${CURDIR}/../..)
+PLATFORM_NAME = $(notdir ${PLATFORM_DIR})
 
-INFO_DIR = ../../ssw/src
-RESULT_DIR = ../../rtl/include
+APP_NAME = $(notdir ${CURDIR})
 
-CFLAGS += -Os
-INCLUDES += -I${INFO_DIR}
+TARGET_IMP_CLASS=vp
+BUILD_MODE=release
+BUILD_MODE_LIST=release debug
 
-all: compile_irom gen_irom_header
+ENGINE_WS=${PLATFORM_DIR}/..
+ENGINE_TARGET=app
+ENGINE_USER_CMD_LIST=build clean
+ENGINE_USER_CMD_ADV_LIST=
+ENGINE_SYSTEM_CMD_LIST=run debugger.start debugger.stop debug path build_dir compile_list compile compile_incremental wifi_config aix_config local_ssw wifi_ssw aix_ssw
+ENGINE_PARA= -p ${PLATFORM_NAME} -a ${APP_NAME} -tic ${TARGET_IMP_CLASS} -bm ${BUILD_MODE}
+GUI_CMD_PARA_LIST=build:TARGET_IMP_CLASS
+include ${RVX_ENV}/engine/rvx_make2engine.mh
 
-compile_irom:
-	@$(CC) $(CFLAGS) $(INCLUDES) -c ${RVX_SSW_HOME}/irom/general_irom.S -o irom.elf
-	@$(OBJDUMP) -D irom.elf > irom.dump
-	@$(CROSS_COMPILE)strip -O binary irom.elf -o irom.bin
-	@xxd -c4 -g4 -ps irom.bin > irom.hex
+FPGA_LIST = $(shell ${PYTHON3_CMD} ${RVX_UTIL_HOME}/os_util.py dir_list ${ENGINE_WS}/../imp_class_info )
+IMP_LIST = vp rtl ${FPGA_LIST}
 
-gen_irom_header:
-	@${PYTHON3_CMD} ${RVX_UTIL_HOME}/generate_rom_header.py -hex_file irom.hex -hex_be -width 32 -p irom -od ${RESULT_DIR}
+${IMP_LIST}:
+	@make build TARGET_IMP_CLASS=$@ BUILD_MODE=release
 
-clean_irom_header:
-	-@rm -rf ${RESULT_DIR}/irom_contents.vh ${RESULT_DIR}/irom_capacity.vh
-
-clean: distclean
+test:
+	@make build TARGET_IMP_CLASS=vp BUILD_MODE=release
+	@cd vp.release; make run
+	

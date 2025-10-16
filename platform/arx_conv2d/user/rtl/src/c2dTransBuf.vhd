@@ -67,6 +67,7 @@ PORT(
   bufLdEnd        : in  std_logic;
   bufLineIn       : in  std_logic_vector(numOfWidth*sizeOfBitIn-1 downto 0);
   numRow          : in  std_logic_vector(7 downto 0); -- from mi_info or mk_info
+  numCol          : in  std_logic_vector(7 downto 0); -- from mi_info or mk_info
   bufRdInit       : in  std_logic;
   bufRdEn         : in  std_logic;
   outHeightCnt    : in  std_logic_vector(sizeOfBitCnt-1 downto 0);
@@ -118,7 +119,7 @@ ARCHITECTURE rtl OF c2dTransBuf IS
   END FUNCTION;
   
   SIGNAL  bufCntInI   : NATURAL RANGE 0 TO numOfHeight-1;
-  SIGNAL  bufCntOutI  : NATURAL RANGE 0 TO numOfHeight-1;
+  SIGNAL  bufCntOutI  : NATURAL RANGE 0 TO numOfWidth-1;
   CONSTANT  zeroSlv   : rowType :=(others=>(others=>'0'));
 
   -- for Monitoring
@@ -213,7 +214,7 @@ BEGIN
     elsif rising_edge(clk) then
       if    (bufRdInit='1') then bufCntOutI <=0;
       elsif (bufRdEn='1') then
-        if bufCntOutI=to_integer(unsigned(numRow))-1 then bufCntOutI <=0;
+        if bufCntOutI=to_integer(unsigned(numCol))-1 then bufCntOutI <=0;
         else bufCntOutI <=bufCntOutI +1; end if;
       end if;
     end if;

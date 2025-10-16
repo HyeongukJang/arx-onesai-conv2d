@@ -15,6 +15,21 @@ typedef struct
 	unsigned int pad : 16;
 } dca_matrix_conv2d_inst_t;
 
+//typedef struct
+//{
+//  dca_matrix_info_t mi;
+//  dca_matrix_info_t mk;
+//  dca_matrix_info_t mo;
+//  unsigned int stride_m1 : 4;
+//  unsigned int pad_amount : 4;
+//  unsigned int pad_has_rowu : 1;
+//  unsigned int pad_has_rowd : 1;
+//  unsigned int pad_has_colu : 1;
+//  unsigned int pad_has_cold : 1;
+//  unsigned int output_acc : 1;
+//  unsigned int output_write : 1;
+//} dca_matrix_conv2d_inst_t;
+
 void dca_matrix_conv2d_hwinfo_elaborate(dca_matrix_conv2d_hwpara_t *hwpara, dca_matrix_conv2d_hwinfo_t *hwinfo)
 {
 	hwinfo->input_matrix_size = hwpara->input_matrix_size;
@@ -60,12 +75,10 @@ ervp_task_wait_fx_t dca_matrix_conv2d_start(ervp_mop_mapping_t *mop_mapping, con
 
 ervp_task_wait_fx_t dca_matrix_conv2d_oneblock(ervp_mop_mapping_t *mop_mapping, const dca_matrix_conv2d_hwinfo_t *const hwinfo, const ErvpMatrixInfo *mi_info, const ErvpMatrixInfo *mk_info, ErvpMatrixInfo *mo_info, unsigned int conv_option_value)
 {
-  //printf("\ndca_matrix_conv2d_oneblock");
 	assert(matrix_conv_check_size(mi_info, mk_info, mo_info, conv_option_value));
 
 	ervp_mconv_option_t conv_option;
 	conv_option.value = conv_option_value;
-  //printf("\nacc: %d", conv_option.br.acc);
 	ervp_task_wait_fx_t task_wait_fx = NULL;
 	if ((conv_option.br.stride_m1 == 0) && (!matrix_conv_has_pad(conv_option_value)))
 	{

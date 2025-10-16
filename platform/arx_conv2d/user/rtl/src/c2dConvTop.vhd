@@ -116,6 +116,7 @@ ARCHITECTURE rtl OF c2dConvTop IS
     bufRdEn         : in  std_logic;
     bufLineIn       : in  std_logic_vector(numOfWidth*sizeOfBitIn-1 downto 0);
     numRow          : in  std_logic_vector(7 downto 0); -- from mi_info or mk_info
+    numCol          : in  std_logic_vector(7 downto 0); -- from mi_info or mk_info
     outHeightCnt    : in  std_logic_vector(sizeOfBitCnt-1 downto 0);
     clk             : in  std_logic;
     resetB          : in  std_logic
@@ -311,6 +312,7 @@ BEGIN
     bufLdEnd        => imgInBufLdEnd   ,
     bufLineIn       => imgInBufDataIn  ,
     numRow          => imageHeight     ,  -- width = height in thic case
+    numCol          => imageWidth      ,
     bufRdInit       => imgBufInit      ,  -- from Controller
     bufRdEn         => imgBufLdEn      ,
     outHeightCnt    => (others=>'0')   ,
@@ -333,6 +335,7 @@ BEGIN
     bufLdEnd        => kerInBufLdEnd   ,
     bufLineIn       => kerInBufDataIn  ,
     numRow          => kernelHeight    ,  -- width = height in thic case
+    numCol          => kernelWidth     ,
     bufRdInit       => kerBufInit      ,  -- from Controller
     bufRdEn         => kerBufLdEn      ,
     outHeightCnt    => outHeightCntI   ,
