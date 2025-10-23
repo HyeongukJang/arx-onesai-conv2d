@@ -60,6 +60,7 @@ GENERIC(
   kernelBufWidth          : NATURAL :=     3; -- KERNEL_BUF_WIDTH, Kernel Buffer Width, HW
   imageBufWidth           : NATURAL :=    14; -- IMAGE_BUF_WIDTH , Image Buffer Width,  HW
   imageBufHeight          : NATURAL :=    14; -- IMAGE_BUF_HEIGHT, Image Buffer Height, HW
+  OUTPUT_BUF_ACCUM        : BOOLEAN :=  TRUE;  -- Output buffer accumulation feature On/Off
   maxOutputNum            : NATURAL :=    16  -- MAX_OUTPUT_NUM  , for Platform
 );
 PORT(
@@ -73,6 +74,12 @@ PORT(
   imgBufRdEn      : out std_logic;
   addTreeEn       : out std_logic;
   outHeightCnt    : out std_logic_vector(imageBufHeightBitSize-1 downto 0);
+  outStrideEn     : out std_logic;
+  strWidthCnt     : out std_logic_vector(imageBufWidthBitSize-1 downto 0);
+  strHeightCnt    : out std_logic_vector(imageBufHeightBitSize-1 downto 0);
+  isFirst         : out std_logic;
+  obRegFileCnt    : out std_logic_vector(imageBufHeightBitSize-1 downto 0);
+  obRegFileWrEn   : out std_logic;
   npuStart        : in  std_logic;
   convCoreEnd     : in  std_logic;
   convCoreValid   : in  std_logic;
@@ -83,6 +90,12 @@ PORT(
   kernelHeight    : in  std_logic_vector(kernelBufHeightBitSize-1 downto 0);
   imageWidth      : in  std_logic_vector(imageBufWidthBitSize-1 downto 0);
   imageHeight     : in  std_logic_vector(imageBufHeightBitSize-1 downto 0);
+  numOutHeight    : in  std_logic_vector(7 downto 0);
+  numOfPad        : in  std_logic_vector(7 downto 0);
+  numOfStride     : in  std_logic_vector(7 downto 0);
+  outBufOutValid  : in  std_logic;
+  outAccumEn      : in  std_logic;
+  outAccumLast    : in  std_logic;
   clk             : in  std_logic;
   resetB          : in  std_logic
 );
@@ -118,6 +131,7 @@ ARCHITECTURE rtl OF c2dConvCoreCtrl IS
     postStt                         -- Post State
   );
   SIGNAL  ctrlMainSttI    : CTRL_STT_MAIN;
+
   SIGNAL  kerBufInitI     : std_logic;
   SIGNAL  kerBufLdStartI  : std_logic;
   SIGNAL  kerBufLdEnI     : std_logic;
@@ -140,6 +154,17 @@ ARCHITECTURE rtl OF c2dConvCoreCtrl IS
   SIGNAL  endOfConv2DI    : std_logic;
   SIGNAL  extraOutEnI     : std_logic;
   SIGNAL  outHeightCntExtraI : NATURAL RANGE 0 TO maxOutputNum;
+  SIGNAL  strWidthCntI    : NATURAL RANGE 0 TO imageBufWidth;
+  SIGNAL  strHeightCntI   : NATURAL RANGE 0 TO imageBufHeight;
+  SIGNAL  strWidthEnI     : std_logic; 
+  SIGNAL  strHeightEnI    : std_logic; 
+  SIGNAL  outNumStrWidthI : NATURAL RANGE 0 TO imageBufWidth;
+  SIGNAL  outNumStrHeighI : NATURAL RANGE 0 TO imageBufHeight;
+  SIGNAL  actualOutCntI   : NATURAL RANGE 0 TO imageBufHeight;
+  SIGNAL  isFirstI        : std_logic; 
+  SIGNAL  isFirstCntI     : NATURAL RANGE 0 TO 3;
+  SIGNAL  obRegFileCntI   : NATURAL RANGE 0 TO imageBufHeight;
+  SIGNAL  obRegFileWrEnI  : std_logic;
   -- SIGNAL END
 
 BEGIN
@@ -163,6 +188,12 @@ BEGIN
   imgBufRdEn      <=imgBufRdEnI;
   addTreeEn       <=addTreeEnI;
   outHeightCnt    <=std_logic_vector(to_unsigned(outHeightCntI, imageBufHeightBitSize));
+  outStrideEn     <=strWidthEnI AND strHeightEnI;
+  strWidthCnt     <=std_logic_vector(to_unsigned(strWidthCntI, kernelBufWidthBitSize));
+  strHeightCnt    <=std_logic_vector(to_unsigned(strHeightCntI, kernelBufHeightBitSize));
+  isFirst         <=isFirstI;
+  obRegFileCnt    <=std_logic_vector(to_unsigned(obRegFileCntI, imageBufHeightBitSize));
+  obRegFileWrEn   <=obRegFileWrEnI;
   -- END CONNECTION
 
   ------------------------------------------------------------------------------
@@ -180,30 +211,56 @@ BEGIN
       case ctrlMainSttI is
         when  idleStt           => ctrlMainSttI <=waitStartStt;       -- IDLE State
         when  waitStartStt      =>
-                if npuStart='1' then ctrlMainSttI <=calcOutNumStt;    -- Wait 2D Conv NPU Start State
+                if npuStart='1' then ctrlMainSttI <=calcOutNumStt;    -- Wait 2D Conv NPU Start State,
                 else                 ctrlMainSttI <=waitStartStt;
                 end if;
-        when  calcOutNumStt     => ctrlMainSttI <=imgBufInitStt;      -- Output Number Calculation State
+        when  calcOutNumStt     => ctrlMainSttI <=imgBufInitStt;      -- Output Number Calculation State,
         when  imgBufInitStt     => ctrlMainSttI <=imgBufLdStt;        -- Image Buffer Initialization State
+
         when  imgBufLdStt       =>                                    -- Image BUffer Initial Load State
-                if imgBufLdCntI=to_integer(unsigned(imageWidth))-1 then ctrlMainSttI <=waitDoneStt;
+                if imgBufLdCntI=(to_integer(unsigned(imageWidth)))-1 then ctrlMainSttI <=waitDoneStt;
                 else                                                    ctrlMainSttI <=imgBufLdStt;
                 end if;
-        when  waitDoneStt       =>                                    -- Wait Done State
+       when  waitDoneStt       =>
                 if convCoreEnd='1' then ctrlMainSttI <=calcParaStt;
                 else                    ctrlMainSttI <=waitDoneStt;
                 end if;
         when  calcParaStt       => ctrlMainSttI <=chkEndStt;          -- Parameter calculation state
-        when  chkEndStt         =>                                    -- Check End State
-                if outHeightCntI=outNumHeightI then ctrlMainSttI <=extraChkStt;
+        when  chkEndStt         =>
+              if to_integer(unsigned(numOfStride))=1 then
+                if outHeightCntI=outNumHeightI then
+                  if (OUTPUT_BUF_ACCUM=FALSE) then
+                    if outHeightCntI=outNumHeightI then ctrlMainSttI <=extraChkStt;
+                    else                                ctrlMainSttI <=imgBufInitStt;
+                    end if;
+                  else
+                    if outAccumLast='0' then ctrlMainSttI <=waitStartStt;
+                    else                     ctrlMainSttI <=extraChkStt;
+                    end if;
+                  end if;
                 else                                ctrlMainSttI <=imgBufInitStt;
                 end if;
+              else
+                if actualOutCntI=to_integer(unsigned(numOutHeight)) then
+                  if (OUTPUT_BUF_ACCUM=FALSE) then
+                    if actualOutCntI=to_integer(unsigned(numOutHeight)) then ctrlMainSttI <=extraChkStt;
+                    else                                ctrlMainSttI <=imgBufInitStt;
+                    end if;
+                  else
+                    if outAccumLast='0' then ctrlMainSttI <=waitStartStt;
+                    else                     ctrlMainSttI <=extraChkStt;
+                    end if;
+                  end if;
+                else                                ctrlMainSttI <=imgBufInitStt;
+                end if;
+              end if;
         when  extraChkStt       =>
                 if outHeightCntExtraI=maxOutputNum then ctrlMainSttI <=restStt;
                 else                                 ctrlMainSttI <=extraOutStt; end if;
         when  extraOutStt       => ctrlMainSttI <=extraChkStt;        -- Extra Out State
         when  restStt           => ctrlMainSttI <=postStt;            -- Rest State
         when  postStt           => ctrlMainSttI <=idleStt;            -- Post State
+
       end case;
     end if;
   END PROCESS;
@@ -283,7 +340,7 @@ BEGIN
     if resetB='0' then imgBufLdCntI <=0;
     elsif rising_edge(clk) then
       if ctrlMainSttI=imgBufLdStt then
-        if imgBufLdCntI=to_integer(unsigned(imageWidth)) then imgBufLdCntI <=0;
+        if imgBufLdCntI=(to_integer(unsigned(imageWidth))) then imgBufLdCntI <=0;
         else imgBufLdCntI <=imgBufLdCntI +1; end if;
       else imgBufLdCntI <=0; end if;
     end if;
@@ -293,7 +350,7 @@ BEGIN
   BEGIN
     if resetB='0' then imgBufLdEndI <='0';
     elsif rising_edge(clk) then
-      if ctrlMainSttI=imgBufLdStt AND imgBufLdCntI=to_integer(unsigned(imageWidth))-1 then imgBufLdEndI <='1';
+      if ctrlMainSttI=imgBufLdStt AND imgBufLdCntI=(to_integer(unsigned(imageWidth)))-1 then imgBufLdEndI <='1';
       else imgBufLdEndI <='0'; end if;
     end if;
   END PROCESS;
@@ -370,7 +427,7 @@ BEGIN
     if resetB='0' then outHeightCntExtraI <=0;
     elsif rising_edge(clk) then
       if ctrlMainSttI=idleStt OR ctrlMainSttI=waitStartStt then outHeightCntExtraI <=0;
-      elsif ctrlMainSttI=calcParaStt OR ctrlMainSttI=extraOutStt then
+      elsif (convCoreEnd='1' AND to_integer(unsigned(strHeightCnt))=0) OR ctrlMainSttI=extraOutStt then
         if outHeightCntExtraI=maxOutputNum then outHeightCntExtraI <=0;
         else outHeightCntExtraI <=outHeightCntExtraI +1; end if;
       end if;
@@ -382,6 +439,18 @@ BEGIN
     if resetB='0' then endOfConv2DI <='0';
     elsif rising_edge(clk) then
       if ctrlMainSttI=restStt then endOfConv2DI <='1';
+      elsif ctrlMainSttI=chkEndStt then
+        if to_integer(unsigned(numOfStride))=1 then
+          if outHeightCntI=outNumHeightI then
+            if outAccumLast='0' then endOfConv2DI <='1';
+            else endOfConv2DI <='0'; end if;
+          else endOfConv2DI <='0'; end if;
+        else
+          if actualOutCntI=to_integer(unsigned(numOutHeight)) then
+            if outAccumLast='0' then endOfConv2DI <='1';
+            else endOfConv2DI <='0'; end if;
+          else endOfConv2DI <='0'; end if;
+        end if;
       else endOfConv2DI <='0'; end if;
     end if;
   END PROCESS;
@@ -392,6 +461,79 @@ BEGIN
     elsif rising_edge(clk) then
       if ctrlMainSttI=extraOutStt then extraOutEnI <='1';
       else                             extraOutEnI <='0'; end if;
+    end if;
+  END PROCESS;
+
+  strWidthCntIP : PROCESS(all)
+  BEGIN
+    if resetB='0' then strWidthCntI <=0;
+    elsif rising_edge(clk) then
+      if ctrlMainSttI=idleStt OR ctrlMainSttI=waitStartStt then strWidthCntI <=0;
+      elsif convCoreValid='1' then
+        if strWidthCntI=to_integer(unsigned(numOfStride)-1) then strWidthCntI <=0;
+        else strWidthCntI <=strWidthCntI +1; end if;
+      end if;
+    end if;
+  END PROCESS;
+  strHeightCntIP : PROCESS(all)
+  BEGIN
+    if resetB='0' then strHeightCntI <=0;
+    elsif rising_edge(clk) then
+      if ctrlMainSttI=idleStt OR ctrlMainSttI=waitStartStt then strHeightCntI <=0;
+      elsif convCoreEnd='1' then
+        if strHeightCntI=to_integer(unsigned(numOfStride)-1) then strHeightCntI <=0;
+        else strHeightCntI <=strHeightCntI +1; end if;
+      end if;
+    end if;
+  END PROCESS;
+  strWidthEnIP : PROCESS(all)
+  BEGIN
+    if resetB='0' then strWidthEnI <='0';
+    elsif rising_edge(clk) then
+      if strWidthCntI=0 then strWidthEnI <='1';
+      else                   strWidthEnI <='0'; end if;
+    end if;
+  END PROCESS;
+  strHeightEnIP : PROCESS(all)
+  BEGIN
+    if resetB='0' then strHeightEnI <='0';
+    elsif rising_edge(clk) then
+      if strHeightCntI=0 then strHeightEnI <='1';
+      else                    strHeightEnI <='0'; end if;
+    end if;
+  END PROCESS;
+  actualOutCntIP : PROCESS(all)
+  BEGIN
+    if resetB='0' then actualOutCntI <=0;
+    elsif rising_edge(clk) then
+      if ctrlMainSttI=idleStt OR ctrlMainSttI=waitStartStt then actualOutCntI <=0;
+      elsif convCoreEnd='1' AND to_integer(unsigned(strHeightCnt))=0 then
+        if actualOutCntI=to_integer(unsigned(numOutHeight)) then actualOutCntI <=0;
+        else actualOutCntI <=actualOutCntI +1; end if;
+      end if;
+    end if;
+  END PROCESS;
+  ------------------------------------------------------------------------------
+
+  ------------------------------------------------------------------------------
+  isFirstI <='0';
+  obRegFileCntIP : PROCESS(all)
+  BEGIN
+    if resetB='0' then obRegFileCntI <=0;
+    elsif rising_edge(clk) then
+      obRegFileCntI <=actualOutCntI;
+    end if;
+  END PROCESS;
+  obRegFileWrEnIP : PROCESS(all)
+  BEGIN
+    if resetB='0' then obRegFileWrEnI <='0';
+    elsif rising_edge(clk) then
+      if ctrlMainSttI=idleStt OR ctrlMainSttI=waitStartStt then obRegFileWrEnI <='0';
+      elsif convCoreEnd='1' AND to_integer(unsigned(strHeightCnt))=0 then
+        obRegFileWrEnI <='1';
+      else
+        obRegFileWrEnI <='0';
+      end if;
     end if;
   END PROCESS;
   ------------------------------------------------------------------------------

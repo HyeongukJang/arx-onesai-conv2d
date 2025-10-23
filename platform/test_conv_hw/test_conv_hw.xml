@@ -35,10 +35,6 @@
 			<name>i_dca_matrix_conv00</name>
       <library_name>dca_matrix_conv2d_mmiox_mlsu</library_name>
       <parameter>
-        <id>INPUT_MATRIX_SIZE</id>
-        <value>18</value>
-      </parameter>
-      <parameter>
         <id>KERNEL_MATRIX_SIZE</id>
         <value>7</value>
       </parameter>

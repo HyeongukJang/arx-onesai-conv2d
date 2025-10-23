@@ -35,7 +35,18 @@ typedef struct
   unsigned int output_matrix_size : 16;
 } dca_matrix_conv2d_hwinfo_t;
 
+static inline ervp_task_wait_fx_t dca_matrix_conv2d_wait_fx(const dca_matrix_conv2d_hwinfo_t *const hwinfo)
+{
+  return hwinfo->mmiox_info->wait_fx;
+}
+
+static inline void dca_matrix_conv2d_wait(const dca_matrix_conv2d_hwinfo_t *const hwinfo)
+{
+  task_wait_finish(dca_matrix_conv2d_wait_fx(hwinfo));
+}
+
 void dca_matrix_conv2d_hwinfo_elaborate(dca_matrix_conv2d_hwpara_t* hwpara, dca_matrix_conv2d_hwinfo_t* hwinfo);
-void dca_matrix_conv2d(ervp_mop_mapping_t *mop_mapping, const dca_matrix_conv2d_hwinfo_t* const hwinfo, const ErvpMatrixInfo *mi_info, const ErvpMatrixInfo *mk_info, ErvpMatrixInfo *mo_info, int conv_options);
+ervp_task_wait_fx_t dca_matrix_conv2d_oneblock(ervp_mop_mapping_t *mop_mapping, const dca_matrix_conv2d_hwinfo_t* const hwinfo, const ErvpMatrixInfo *mi_info, const ErvpMatrixInfo *mk_info, ErvpMatrixInfo *mo_info, unsigned int conv_option_value);
+ervp_task_wait_fx_t dca_matrix_conv2d_oneblock_sharedoutput(ervp_mop_mapping_t *mop_mapping, const dca_matrix_conv2d_hwinfo_t *const hwinfo, int num_input, const ErvpMatrixInfo **input_info_list, const ErvpMatrixInfo **kernel_info_list, ErvpMatrixInfo *output_info, unsigned int conv_option_value, int init_ouptut);
 
 #endif

@@ -18,7 +18,7 @@
 
 `include "ervp_global.vh"
 `include "ervp_endian.vh"
-`include "dca_module_memorymap_offset.vh"
+`include "dca_module_ext_memorymap_offset.vh"
 
 `include "dca_matrix_info.vh"
 `include "dca_matrix_lsu_inst.vh"
@@ -101,9 +101,9 @@ parameter MA_BW_DATA = 128;
 parameter MB_BW_DATA = 128;
 parameter MC_BW_DATA = 128;
 
-parameter INPUT_MATRIX_SIZE = 18;
 parameter KERNEL_MATRIX_SIZE = 7;
-parameter OUTPUT_MATRIX_SIZE =16;
+parameter OUTPUT_MATRIX_SIZE = 8;
+parameter INPUT_MATRIX_SIZE = KERNEL_MATRIX_SIZE + OUTPUT_MATRIX_SIZE - 1;
 parameter TENSOR_PARA = 0;
 
 localparam BW_CONFIG = 1;
@@ -204,7 +204,9 @@ wire [`BW_DCA_MATRIX_INFO_ALIGNED-1:0] mi_info;
 wire [`BW_DCA_MATRIX_INFO_ALIGNED-1:0] mk_info;
 wire [`BW_DCA_MATRIX_INFO_ALIGNED-1:0] mo_info;
 wire [`BW_DCA_MATRIX_CONV2D_INST_STRIDE_M1-1:0] inst_stride_m1;
-wire [`BW_DCA_MATRIX_CONV2D_INST_PAD-1:0] inst_pad;
+wire [`BW_DCA_MATRIX_CONV2D_INST_PAD_AMOUNT-1:0] inst_pad;
+wire pad_has_rowu, pad_has_rowd, pad_has_colu, pad_has_cold;
+wire output_clear, output_store;
 
 wire [`BW_DCA_MATRIX_LSU_INST_OPCODE-1:0] lsu0_inst_opcode;
 wire [`BW_DCA_MATRIX_LSU_INST_OPCODE-1:0] lsu1_inst_opcode;
@@ -213,18 +215,22 @@ wire [`BW_DCA_MATRIX_LSU_INST_OPCODE-1:0] lsu2_inst_opcode;
 wire [`BW_DCA_MATRIX_INFO_ADDR-1:0] mi_inst_addr;
 wire [`BW_DCA_MATRIX_INFO_STRIDE_LS3-1:0] mi_inst_stride_ls3;
 wire [`BW_DCA_MATRIX_INFO_NUM_ROW_M1-1:0] mi_inst_num_row_m1;
+wire [`BW_DCA_MATRIX_INFO_NUM_COL_M1-1:0] mi_inst_num_col_m1; // V251014.hkim
 
 wire [`BW_DCA_MATRIX_INFO_ADDR-1:0] mk_inst_addr;
 wire [`BW_DCA_MATRIX_INFO_STRIDE_LS3-1:0] mk_inst_stride_ls3;
 wire [`BW_DCA_MATRIX_INFO_NUM_ROW_M1-1:0] mk_inst_num_row_m1;
+wire [`BW_DCA_MATRIX_INFO_NUM_COL_M1-1:0] mk_inst_num_col_m1; // V251014.hkim
 
 wire [`BW_DCA_MATRIX_INFO_ADDR-1:0] mo_inst_addr;
 wire [`BW_DCA_MATRIX_INFO_STRIDE_LS3-1:0] mo_inst_stride_ls3;
 wire [`BW_DCA_MATRIX_INFO_NUM_ROW_M1-1:0] mo_inst_num_row_m1;
+wire [`BW_DCA_MATRIX_INFO_NUM_COL_M1-1:0] mo_inst_num_col_m1; // V251014.hkim
 
 localparam BW_MATRIX_SIZE = 8;
 
 wire [BW_MATRIX_SIZE-1:0] input_size_m1, kernel_size_m1, output_size_m1;
+wire [BW_MATRIX_SIZE-1:0] input_size_col_m1, kernel_size_col_m1, output_size_col_m1; //V251014.hkim
 
 localparam BW_STATE = 2;
 localparam IDLE = 0;
@@ -306,7 +312,8 @@ wire [BW_OUTPUT_TENSOR_ROW-1:0] i_mreg2_upmost_rdata_list1d;
 wire end_of_2d_conv;
 wire conv_core_valid;
 wire [BW_OUTPUT_TENSOR_ROW-1:0] conv_core_out;
-
+wire conv_output_clear, conv_output_store;
+wire [BW_MATRIX_SIZE-1:0] conv_pad, conv_stride;
 
 ////////////
 /* logics */
@@ -322,24 +329,29 @@ assign control_rmx_output_fifo_wrequest = 0;
 assign control_rmx_output_fifo_wdata = 0;
 
 assign mi_sstore_tensor_row_rready = 0;
-assign mi_sstore_tensor_row_rlast = 0;
 assign mi_sstore_tensor_row_rdata = 0;
 
 assign mk_sstore_tensor_row_rready = 0;
-assign mk_sstore_tensor_row_rlast = 0;
 assign mk_sstore_tensor_row_rdata = 0;
 
 assign mo_sload_tensor_row_wready = 0;
 
 // inst
-assign {inst_pad,inst_stride_m1,mo_info,mk_info,mi_info} = control_rmx_inst_fifo_rdata;
-assign {mi_inst_num_row_m1, mi_inst_stride_ls3, mi_inst_addr} = mi_info;
-assign {mk_inst_num_row_m1, mk_inst_stride_ls3, mk_inst_addr} = mk_info;
-assign {mo_inst_num_row_m1, mo_inst_stride_ls3, mo_inst_addr} = mo_info;
+assign {output_store, output_clear, pad_has_cold, pad_has_colu, pad_has_rowd, pad_has_rowu, inst_pad, inst_stride_m1, mo_info, mk_info, mi_info} = control_rmx_inst_fifo_rdata; //V251017.hkim
+assign {mi_inst_num_col_m1, mi_inst_num_row_m1, mi_inst_stride_ls3, mi_inst_addr} = mi_info;  //V251014.hkim
+assign {mk_inst_num_col_m1, mk_inst_num_row_m1, mk_inst_stride_ls3, mk_inst_addr} = mk_info;  //V251014.hkim
+assign {mo_inst_num_col_m1, mo_inst_num_row_m1, mo_inst_stride_ls3, mo_inst_addr} = mo_info;  //V251014.hkim
+//V25114.hkim : assign {mi_inst_num_row_m1, mi_inst_stride_ls3, mi_inst_addr} = mi_info;
+//V25114.hkim : assign {mk_inst_num_row_m1, mk_inst_stride_ls3, mk_inst_addr} = mk_info;
+//V25114.hkim : assign {mo_inst_num_row_m1, mo_inst_stride_ls3, mo_inst_addr} = mo_info;
 
 assign input_size_m1 = mi_inst_num_row_m1;
 assign kernel_size_m1 = mk_inst_num_row_m1;
 assign output_size_m1 = mo_inst_num_row_m1;
+//V251014.hkim
+assign input_size_col_m1 = mi_inst_num_col_m1;
+assign kernel_size_col_m1 = mk_inst_num_col_m1;
+assign output_size_col_m1 = mo_inst_num_col_m1;
 
 // state
 always@(posedge clk or negedge rstnn)
@@ -582,7 +594,12 @@ assign control_rmx_inst_fifo_rrequest = go_store;
 assign control_rmx_operation_finish = go_idle;
 
 // execute
-// hkim
+// V251020.hkim
+assign conv_output_clear = output_clear;
+assign conv_output_store = output_store;
+assign conv_pad = { 4'b0 , inst_pad };
+assign conv_stride = { 4'b0 , inst_stride_m1 };
+
 c2dConvTop
 #(
   .IMAGE_BUF_WIDTH          (INPUT_MATRIX_SIZE ),
@@ -597,6 +614,7 @@ c2dConvTop
   .KERNEL_BUF_HEIGHT_BITSIZE(BW_MATRIX_SIZE    ),
   .OUTPUT_BUF_WIDTH         (OUTPUT_MATRIX_SIZE),
   .OUTPUT_BUF_BITSIZE       (BW_TENSOR_SCALAR  ),
+  .OUTPUT_BUF_ACCUM         (1'b1              ),
   .MAX_OUTPUT_NUM           (OUTPUT_MATRIX_SIZE)
 )
 i_c2dConvTop
@@ -612,16 +630,23 @@ i_c2dConvTop
   .imgInBufLdEn    ( mi_sload_tensor_row_wvalid           ),
   .imgInBufLdEnd   ( mi_sload_tensor_row_wlast            ),
   .imgInBufDataIn  ( mi_sload_tensor_row_wdata            ),
-  .numKernelWidth  ( kernel_size_m1 + 1'b1                ),
+  .outAccumEn      ( conv_output_clear                    ),
+  .outAccumLast    ( conv_output_store                    ),
+  .numKernelWidth  ( kernel_size_col_m1 + 1'b1            ),  //V251014.hkim
   .numKernelHeight ( kernel_size_m1 + 1'b1                ),
-  .numImageWidth   ( input_size_m1 + 1'b1                 ),
+  .numImageWidth   ( input_size_col_m1 + 1'b1             ),  //V251014.hkim
   .numImageHeight  ( input_size_m1 + 1'b1                 ),
-  .numOutWidth     ( output_size_m1 + 1'b1                ),
+  .numOutWidth     ( output_size_col_m1 + 1'b1            ),  //V251014.hkim
   .numOutHeight    ( output_size_m1 + 1'b1                ),
+  .numOfPad        ( conv_pad                             ),
+  .numOfStride     ( conv_stride + 1'b1                   ),
   .npuStart        ( go_execute                           ),
   .clk             ( clk                                  ),
   .resetB          ( rstnn                                )
 );
+  //V251014.hkim : .numKernelWidth  ( kernel_size_m1 + 1'b1                ),
+  //V251014.hkim : .numImageWidth   ( input_size_m1 + 1'b1                 ),
+  //V251014.hkim : .numOutWidth     ( output_size_m1 + 1'b1                ),
 
 
 // debug
