@@ -47,5 +47,6 @@ static inline void dca_matrix_conv2d_wait(const dca_matrix_conv2d_hwinfo_t *cons
 
 void dca_matrix_conv2d_hwinfo_elaborate(dca_matrix_conv2d_hwpara_t* hwpara, dca_matrix_conv2d_hwinfo_t* hwinfo);
 ervp_task_wait_fx_t dca_matrix_conv2d_oneblock(ervp_mop_mapping_t *mop_mapping, const dca_matrix_conv2d_hwinfo_t* const hwinfo, const ErvpMatrixInfo *mi_info, const ErvpMatrixInfo *mk_info, ErvpMatrixInfo *mo_info, unsigned int conv_option_value);
+ervp_task_wait_fx_t dca_matrix_conv2d_oneblock_sharedoutput(ervp_mop_mapping_t *mop_mapping, const dca_matrix_conv2d_hwinfo_t *const hwinfo, int num_input, const ErvpMatrixInfo **input_info_list, const ErvpMatrixInfo **kernel_info_list, ErvpMatrixInfo *output_info, unsigned int conv_option_value, int init_ouptut);
 
 #endif
