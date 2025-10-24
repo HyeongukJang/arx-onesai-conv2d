@@ -42,11 +42,6 @@ int main()
     ervp_mconv_option_t conv_option;
     conv_option.value = 0;
     conv_option.br.rshift = 0;
-
-    ervp_mop_option_t mop_option;
-    mop_option.value = 0;
-    mop_option.br.rshift = 0;
-    mop_option.br.performs_cliping = 0;
     conv_option.br.acc = 1;
 
     input_info_list = calloc(sizeof(ErvpMatrixInfo *), INPUT_MATRIX_SIZE_C);

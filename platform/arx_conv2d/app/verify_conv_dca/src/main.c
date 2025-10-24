@@ -15,8 +15,8 @@
 
 ///////////////////////////////////////////////////////////////
 
-#define NUM_MATRIX 1
-#define INPUT_MATRIX_SIZE 8
+#define NUN_MATRIX 1
+#define INPUT_MATRIX_SIZE 16
 #define KERNEL_MATRIX_SIZE 3
 #define RESULT_CHECK 1
 
@@ -46,7 +46,7 @@ int main()
     output_info = matrix_conv_alloc_output(input_info, kernel_info, conv_option.value);
     ref_info = matrix_conv_alloc_output(input_info, kernel_info, conv_option.value);
 
-    for(int i=0; i<NUM_MATRIX; i=i+1)
+    for(int i=0; i<NUN_MATRIX; i=i+1)
     {
       // generate input
       generate_test_matrix(input_info, i);

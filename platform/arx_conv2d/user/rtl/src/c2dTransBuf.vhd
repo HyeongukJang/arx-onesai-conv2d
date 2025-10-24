@@ -68,6 +68,7 @@ PORT(
   bufLineIn       : in  std_logic_vector(numOfWidth*sizeOfBitIn-1 downto 0);
   numRow          : in  std_logic_vector(7 downto 0); -- from mi_info or mk_info
   numCol          : in  std_logic_vector(7 downto 0); -- from mi_info or mk_info
+  numPad          : in  std_logic_vector(7 downto 0); -- number of pad
   bufRdInit       : in  std_logic;
   bufRdEn         : in  std_logic;
   outHeightCnt    : in  std_logic_vector(sizeOfBitCnt-1 downto 0);
@@ -94,7 +95,9 @@ ARCHITECTURE rtl OF c2dTransBuf IS
 
   TYPE outRowType IS ARRAY(0 TO numOfHeightOut-1) OF std_logic_vector(sizeOfBitIn-1 downto 0);
 
+  ------------------------------------------------------------------------------
   -- Vector-to-Array
+  ------------------------------------------------------------------------------
   FUNCTION vectorToArray( vectorIn      : std_logic_vector;
                           arraySize     : NATURAL;
                           elemWidth     : POSITIVE) RETURN rowType IS
@@ -105,8 +108,31 @@ ARCHITECTURE rtl OF c2dTransBuf IS
     END LOOP;
     RETURN arrayOut;
   END FUNCTION;
+  ------------------------------------------------------------------------------
 
+  ------------------------------------------------------------------------------
+  -- Vector-to-Array-Offset
+  ------------------------------------------------------------------------------
+  -- Converts the input vector of arraySize into an array of elemWidth units.
+  -- In this case, the array is arranged from the beginning with an offset of elemWidth units (taking padding into account).
+  ------------------------------------------------------------------------------
+  FUNCTION vectorToArrayOffset( vectorIn      : std_logic_vector;
+                                arraySize     : NATURAL;
+                                offset        : NATURAL;
+                                elemWidth     : POSITIVE) RETURN rowType IS
+    VARIABLE arrayOut : rowType;
+  BEGIN
+    FOR i IN 0 to arraySize-1 LOOP
+      if (i < offset) then arrayOut(i) :=(others=>'0');
+      else arrayOut(i) := vectorIn( (i+1-offset)*elemWidth-1 downto (i-offset)*elemWidth ); end if;
+    END LOOP;
+    RETURN arrayOut;
+  END FUNCTION;
+  ------------------------------------------------------------------------------
+
+  ------------------------------------------------------------------------------
   -- Array-to-Vector
+  ------------------------------------------------------------------------------
   FUNCTION arrayToVector( arrayIn       : outRowType;
                           arraySize     : NATURAL;
                           elemWidth     : POSITIVE) RETURN std_logic_vector IS
@@ -117,6 +143,7 @@ ARCHITECTURE rtl OF c2dTransBuf IS
     END LOOP;
     RETURN vectorOut;
   END FUNCTION;
+  ------------------------------------------------------------------------------
   
   SIGNAL  bufCntInI   : NATURAL RANGE 0 TO numOfHeight-1;
   SIGNAL  bufCntOutI  : NATURAL RANGE 0 TO numOfWidth-1;
@@ -149,6 +176,18 @@ BEGIN
   -- PROCESSES
   ------------------------------------------------------------------------------
   -- Input Data, IB
+  ------------------------------------------------------------------------------
+  -- Incoming input data is cut into numOfWidth units, transposed, and stored in an array.
+  -- If padding information (numPad) is available, the data is stored with the padding taken into account.
+  -- Since it is initialized upon initialization, any unsaved data is set to 0.
+  -- 'bufData' stores the input data after transpose.
+  --
+  -- [][][][][] --> 0   0 <- padding (if exists)
+  --                0  []
+  --                0  []
+  --                0  []
+  --                0  []
+  ------------------------------------------------------------------------------
   bufDataInP : PROCESS(all)
     VARIABLE  bufLineInArrayV : rowType;
   BEGIN
@@ -156,13 +195,19 @@ BEGIN
     elsif rising_edge(clk) then
       if    (bufLdInit='1') then bufData <=(others=>zeroSlv);
       elsif (bufLdEn='1') then
-        bufLineInArrayV :=vectorToArray(bufLineIn, numOfWidth, sizeOfBitIn);
-        bufData(bufCntInI) <=bufLineInArrayV;
+        bufLineInArrayV :=vectorToArrayOffset(bufLineIn, numOfWidth, 0, sizeOfBitIn);
+        bufData(bufCntInI) <=bufLineInArrayV; -- Store data considering the amount of padding
       end if;
     end if;
   END PROCESS;
-    
+
+  ------------------------------------------------------------------------------
   -- Input Data Counter
+  ------------------------------------------------------------------------------
+  -- A counter used to store data in bufData.
+  -- Stores un-padded input data.
+  -- Padding is performed when storing data in bufData.
+  ------------------------------------------------------------------------------
   bufCntInIP : PROCESS(all)
   BEGIN
     if resetB='0' then bufCntInI <=0;
@@ -175,8 +220,12 @@ BEGIN
       end if;
     end if;
   END PROCESS;
-
+  
+------------------------------------------------------------------------------
   -- Output Data
+  ------------------------------------------------------------------------------
+  -- Read the entire buffer transposed according to the enable signal
+  ------------------------------------------------------------------------------
   bufDataOutP : PROCESS(all)
     VARIABLE bufLineOutV : outRowType;
     VARIABLE startPtr, endPtr : INTEGER;
@@ -199,6 +248,9 @@ BEGIN
     end if;
   END PROCESS;
 
+  ------------------------------------------------------------------------------
+  -- Output Valid
+  ------------------------------------------------------------------------------
   outValidP : PROCESS(all)
   BEGIN
     if resetB='0' then outValid <='0';
@@ -206,15 +258,17 @@ BEGIN
       outValid <=bufRdEn;
     end if;
   END PROCESS;
-    
+
+  ------------------------------------------------------------------------------
   -- Output Data Counter
+  ------------------------------------------------------------------------------
   bufCntOutIP : PROCESS(all)
   BEGIN
     if resetB='0' then bufCntOutI <=0;
     elsif rising_edge(clk) then
       if    (bufRdInit='1') then bufCntOutI <=0;
       elsif (bufRdEn='1') then
-        if bufCntOutI=to_integer(unsigned(numCol))-1 then bufCntOutI <=0;
+        if bufCntOutI=(to_integer(unsigned(numCol)))-1 then bufCntOutI <=0;
         else bufCntOutI <=bufCntOutI +1; end if;
       end if;
     end if;

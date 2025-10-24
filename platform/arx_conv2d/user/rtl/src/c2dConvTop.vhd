@@ -65,6 +65,7 @@ GENERIC(
   KERNEL_BUF_HEIGHT_BITSIZE  : NATURAL :=     8;
   OUTPUT_BUF_WIDTH           : NATURAL :=    16;
   OUTPUT_BUF_BITSIZE         : NATURAL :=    32;
+  OUTPUT_BUF_ACCUM           : BOOLEAN :=  TRUE;  -- Output buffer accumulation feature On/Off
   MAX_OUTPUT_NUM             : NATURAL :=    16  -- for Platform
 );
 PORT(
@@ -79,12 +80,16 @@ PORT(
   imgInBufLdEn    : in  std_logic;
   imgInBufLdEnd   : in  std_logic;
   imgInBufDataIn  : in  std_logic_vector(IMAGE_BUF_WIDTH*IMAGE_BUF_BITSIZE-1 downto 0);
+  outAccumEn      : in  std_logic;
+  outAccumLast    : in  std_logic;
   numKernelWidth  : in  std_logic_vector(7 downto 0);
   numKernelHeight : in  std_logic_vector(7 downto 0);
   numImageWidth   : in  std_logic_vector(7 downto 0);
   numImageHeight  : in  std_logic_vector(7 downto 0);
   numOutWidth     : in  std_logic_vector(7 downto 0);
   numOutHeight    : in  std_logic_vector(7 downto 0);
+  numOfPad        : in  std_logic_vector(7 downto 0);
+  numOfStride     : in  std_logic_vector(7 downto 0);
   npuStart        : in  std_logic;
   clk             : in  std_logic;
   resetB          : in  std_logic
@@ -97,7 +102,6 @@ ARCHITECTURE rtl OF c2dConvTop IS
   ------------------------------------------------------------------------------
   -- COMPONENT DECLARATION
   ------------------------------------------------------------------------------
-  ---V250526
   COMPONENT c2dTransBuf
   GENERIC(
     numOfWidth      : NATURAL := 8;   -- number of BUF_WIDTH  , HW
@@ -117,6 +121,7 @@ ARCHITECTURE rtl OF c2dConvTop IS
     bufLineIn       : in  std_logic_vector(numOfWidth*sizeOfBitIn-1 downto 0);
     numRow          : in  std_logic_vector(7 downto 0); -- from mi_info or mk_info
     numCol          : in  std_logic_vector(7 downto 0); -- from mi_info or mk_info
+    numPad          : in  std_logic_vector(7 downto 0); -- number of pad
     outHeightCnt    : in  std_logic_vector(sizeOfBitCnt-1 downto 0);
     clk             : in  std_logic;
     resetB          : in  std_logic
@@ -153,7 +158,6 @@ ARCHITECTURE rtl OF c2dConvTop IS
   END COMPONENT;
 
   COMPONENT c2dConvCoreCtrl
-  ---V250904
   GENERIC(
     imageBufWidthBitSize    : NATURAL :=     8; -- IMAGE_BUF_WIDTH_BITSIZE
     imageBufHeightBitSize   : NATURAL :=     8; -- IMAGE_BUF_HEIGHT_BITSIZE
@@ -162,10 +166,11 @@ ARCHITECTURE rtl OF c2dConvTop IS
     kernelBufWidth          : NATURAL :=     3; -- KERNEL_BUF_WIDTH, Kernel Buffer Width, HW
     imageBufWidth           : NATURAL :=    14; -- IMAGE_BUF_WIDTH , Image Buffer Width,  HW
     imageBufHeight          : NATURAL :=    14; -- IMAGE_BUF_HEIGHT, Image Buffer Height, HW
+    OUTPUT_BUF_ACCUM        : BOOLEAN :=  TRUE;  -- Output buffer accumulation feature On/Off
     maxOutputNum            : NATURAL :=    16  -- MAX_OUTPUT_NUM  , for Platform
   );
   PORT(
-    endOfConv2D     : out std_logic;
+    endOfConv2D     : out std_logic; 
     extraOutEn      : out std_logic;
     kerBufInit      : out std_logic;
     kerBufLdEn      : out std_logic;
@@ -175,6 +180,12 @@ ARCHITECTURE rtl OF c2dConvTop IS
     imgBufRdEn      : out std_logic;
     addTreeEn       : out std_logic;
     outHeightCnt    : out std_logic_vector(IMAGE_BUF_HEIGHT_BITSIZE-1 downto 0);
+    outStrideEn     : out std_logic;
+    strWidthCnt     : out std_logic_vector(imageBufWidthBitSize-1 downto 0);
+    strHeightCnt    : out std_logic_vector(imageBufHeightBitSize-1 downto 0);
+    isFirst         : out std_logic;
+    obRegFileCnt    : out std_logic_vector(imageBufHeightBitSize-1 downto 0);
+    obRegFileWrEn   : out std_logic;
     npuStart        : in  std_logic;
     convCoreEnd     : in  std_logic;
     convCoreValid   : in  std_logic;
@@ -185,6 +196,12 @@ ARCHITECTURE rtl OF c2dConvTop IS
     kernelHeight    : in  std_logic_vector(KERNEL_BUF_HEIGHT_BITSIZE-1 downto 0);
     imageWidth      : in  std_logic_vector(IMAGE_BUF_WIDTH_BITSIZE-1 downto 0);
     imageHeight     : in  std_logic_vector(IMAGE_BUF_HEIGHT_BITSIZE-1 downto 0);
+    numOutHeight    : in  std_logic_vector(7 downto 0);
+    numOfPad        : in  std_logic_vector(7 downto 0);
+    numOfStride     : in  std_logic_vector(7 downto 0);
+    outBufOutValid  : in  std_logic;
+    outAccumEn      : in  std_logic;
+    outAccumLast    : in  std_logic;
     clk             : in  std_logic;
     resetB          : in  std_logic
   );
@@ -206,9 +223,12 @@ ARCHITECTURE rtl OF c2dConvTop IS
 
   COMPONENT c2dOutBuf
   GENERIC(
-    numOfData       : NATURAL := 8;   -- number of data
-    sizeOfBitIn     : NATURAL := 8;   -- input bit size
-    sizeOfBitOut    : NATURAL := 8    -- output bit size
+    OUTPUT_BUF_ACCUM      : BOOLEAN := TRUE;  -- Output buffer accumulation feature On/Off
+    imageBufWidthBitSize  : NATURAL := 8; -- IMAGE_BUF_WIDTH_BITSIZE
+    imageBufHeightBitSize : NATURAL := 8; -- IMAGE_BUF_HEIGHT_BITSIZE
+    numOfData             : NATURAL := 8;   -- number of data
+    sizeOfBitIn           : NATURAL := 8;   -- input bit size
+    sizeOfBitOut          : NATURAL := 8    -- output bit size
   );
   PORT(
     outValid        : out std_logic;
@@ -218,6 +238,14 @@ ARCHITECTURE rtl OF c2dConvTop IS
     bufIn           : in  std_logic_vector(sizeOfBitIn-1 downto 0);
     endOfRow        : in  std_logic;
     numRow          : in  std_logic_vector(7 downto 0);
+    strWidthCnt     : in  std_logic_vector(imageBufWidthBitSize-1 downto 0);
+    strHeightCnt    : in  std_logic_vector(imageBufHeightBitSize-1 downto 0);
+    isFirst         : in  std_logic;
+    outAccumEn      : in  std_logic;
+    outAccumLast    : in  std_logic;
+    endOfConv       : in  std_logic;
+    obRegFileCnt    : in  std_logic_vector(imageBufHeightBitSize-1 downto 0);
+    obRegFileWrEn   : in  std_logic;
     clk             : in  std_logic;
     resetB          : in  std_logic
   );
@@ -263,6 +291,19 @@ ARCHITECTURE rtl OF c2dConvTop IS
   SIGNAL  convCoreValidI  : std_logic;
   SIGNAL  extraOutEnI     : std_logic;
   SIGNAL  convCoreValidO  : std_logic;
+  SIGNAL  outWidth        : std_logic_vector(7 downto 0);
+  SIGNAL  outHeight       : std_logic_vector(7 downto 0);
+  SIGNAL  numPad          : std_logic_vector(7 downto 0);
+  SIGNAL  numStride       : std_logic_vector(7 downto 0);
+  SIGNAL  outStrideEnI    : std_logic;
+  SIGNAL  strWidthCntI    : std_logic_vector(IMAGE_BUF_WIDTH_BITSIZE-1 downto 0);
+  SIGNAL  strHeightCntI   : std_logic_vector(IMAGE_BUF_HEIGHT_BITSIZE-1 downto 0);
+  SIGNAL  endOfConv2DI    : std_logic;
+  SIGNAL  isFirstI        : std_logic;
+  SIGNAL  obRegFileCntI   : std_logic_vector(IMAGE_BUF_HEIGHT_BITSIZE-1 downto 0);
+  SIGNAL  obRegFileWrEnI  : std_logic;
+  SIGNAL  outAccumEnI     : std_logic;
+  SIGNAL  outAccumLastI   : std_logic;
   -- SIGNAL END
 
 BEGIN
@@ -291,6 +332,7 @@ BEGIN
   addTreeEnI  <=sigFifoOutI(0);
 
   convCoreValid <=convCoreValidO OR extraOutEnI;
+  endOfConv2D <=endOfConv2DI;
   -- END CONNECTION
 
   ------------------------------------------------------------------------------
@@ -311,10 +353,11 @@ BEGIN
     bufLdEn         => imgInBufLdEn    ,
     bufLdEnd        => imgInBufLdEnd   ,
     bufLineIn       => imgInBufDataIn  ,
-    numRow          => imageHeight     ,  -- width = height in thic case
+    numRow          => imageHeight     ,
     numCol          => imageWidth      ,
     bufRdInit       => imgBufInit      ,  -- from Controller
     bufRdEn         => imgBufLdEn      ,
+    numPad          => numPad          ,  -- number of pad
     outHeightCnt    => (others=>'0')   ,
     clk             => clk             ,
     resetB          => resetB
@@ -334,10 +377,11 @@ BEGIN
     bufLdEn         => kerInBufLdEn    ,
     bufLdEnd        => kerInBufLdEnd   ,
     bufLineIn       => kerInBufDataIn  ,
-    numRow          => kernelHeight    ,  -- width = height in thic case
+    numRow          => kernelHeight    ,
     numCol          => kernelWidth     ,
     bufRdInit       => kerBufInit      ,  -- from Controller
     bufRdEn         => kerBufLdEn      ,
+    numPad          => (others=>'0')   ,  -- number of pad
     outHeightCnt    => outHeightCntI   ,
     clk             => clk             ,
     resetB          => resetB
@@ -380,10 +424,11 @@ BEGIN
     kernelBufWidth          => KERNEL_BUF_WIDTH           ,
     imageBufWidth           => IMAGE_BUF_WIDTH            ,
     imageBufHeight          => IMAGE_BUF_HEIGHT           ,
+    OUTPUT_BUF_ACCUM        => OUTPUT_BUF_ACCUM           ,
     maxOutputNum            => MAX_OUTPUT_NUM
   )
   PORT MAP(
-    endOfConv2D     => endOfConv2D     ,
+    endOfConv2D     => endOfConv2DI    ,
     extraOutEn      => extraOutEnI     ,
     kerBufInit      => kerBufInit      ,
     kerBufLdEn      => kerBufLdEn      ,
@@ -393,9 +438,15 @@ BEGIN
     imgBufRdEn      => imgBufRdEn      ,
     addTreeEn       => addTreeEn       ,
     outHeightCnt    => outHeightCntI   ,
+    outStrideEn     => outStrideEnI    ,
+    strWidthCnt     => strWidthCntI    ,
+    strHeightCnt    => strHeightCntI   ,
+    isFirst         => isFirstI        ,
+    obRegFileCnt    => obRegFileCntI   ,
+    obRegFileWrEn   => obRegFileWrEnI  ,
     npuStart        => npuStart        ,
     convCoreEnd     => convCoreEndI    ,
-    convCoreValid   => convCoreValid   ,
+    convCoreValid   => convCoreValidI  ,
     imgBufFull      => imgBufFull      ,
     imgBufEmpty     => imgBufEmpty     ,
     kerBufFull      => kerBufFull      ,
@@ -403,6 +454,12 @@ BEGIN
     kernelHeight    => kernelHeight    ,
     imageWidth      => imageWidth      ,
     imageHeight     => imageHeight     ,
+    numOutHeight    => outHeight       ,
+    numOfPad        => numPad          ,
+    numOfStride     => numStride       ,
+    outBufOutValid  => convCoreValidO  ,
+    outAccumEn      => outAccumEnI     ,
+    outAccumLast    => outAccumLastI   ,
     clk             => clk             ,
     resetB          => resetB
   );
@@ -429,21 +486,36 @@ BEGIN
       kernelHeight <=(others=>'0');
       imageWidth   <=(others=>'0');
       imageHeight  <=(others=>'0');
+      outWidth     <=(others=>'0');
+      outHeight    <=(others=>'0');
+      numPad       <=(others=>'0');
+      numStride    <=(others=>'0');
+      outAccumEnI  <='0';
+      outAccumLastI<='0';
     elsif rising_edge(clk) then
       if imgInBufLdInit='1' then
         kernelWidth  <=numKernelWidth;
         kernelHeight <=numKernelHeight;
         imageWidth   <=numImageWidth;
         imageHeight  <=numImageHeight;
+        outWidth     <=numOutWidth;
+        outHeight    <=numOutHeight;
+        numPad       <=numOfPad;
+        numStride    <=numOfStride;
+        outAccumEnI  <=outAccumEn;
+        outAccumLastI<=outAccumLast;
       end if;
     end if;
   END PROCESS;
 
   i3_c2dOutBuf : c2dOutBuf
   GENERIC MAP(
-    numOfData       => OUTPUT_BUF_WIDTH   ,
-    sizeOfBitIn     => OUTPUT_BUF_WIDTH_BITSIZE ,
-    sizeOfBitOut    => OUTPUT_BUF_BITSIZE
+    OUTPUT_BUF_ACCUM      => OUTPUT_BUF_ACCUM         ,
+    imageBufWidthBitSize  => IMAGE_BUF_WIDTH_BITSIZE  ,
+    imageBufHeightBitSize => IMAGE_BUF_HEIGHT_BITSIZE ,
+    numOfData             => OUTPUT_BUF_WIDTH         ,
+    sizeOfBitIn           => OUTPUT_BUF_WIDTH_BITSIZE ,
+    sizeOfBitOut          => OUTPUT_BUF_BITSIZE
   )
   PORT MAP(
     outValid        => convCoreValidO  ,
@@ -452,7 +524,15 @@ BEGIN
     bufEn           => convCoreValidI  ,
     bufIn           => convCoreOutI    ,
     endOfRow        => convCoreEndI    ,
-    numRow          => numOutWidth     ,
+    numRow          => outWidth        ,
+    strWidthCnt     => strWidthCntI    ,
+    strHeightCnt    => strHeightCntI   ,
+    isFirst         => isFirstI        ,
+    outAccumEn      => outAccumEnI     ,
+    outAccumLast    => outAccumLastI   ,
+    endOfConv       => endOfConv2DI    ,
+    obRegFileCnt    => obRegFileCntI   ,
+    obRegFileWrEn   => obRegFileWrEnI  ,
     clk             => clk             ,
     resetB          => resetB
   );
